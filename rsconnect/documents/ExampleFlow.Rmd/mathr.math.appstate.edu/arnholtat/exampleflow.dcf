@@ -1,0 +1,13 @@
+name: exampleflow
+title: ExampleFlow
+username: arnholtat
+account: arnholtat
+server: mathr.math.appstate.edu
+hostUrl: https://mathr.math.appstate.edu/connect/__api__
+appId: 10
+bundleId: 23
+url: https://mathr.math.appstate.edu/connect/content/e23f1a63-980d-484a-adbc-d26958c7322d/
+when: 1637239791.84402
+lastSyncTime: 1637239791.84403
+asMultiple: FALSE
+asStatic: FALSE
