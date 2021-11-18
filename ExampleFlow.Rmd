@@ -1,0 +1,546 @@
+---
+title: "Class Example Using `Boston`"
+author: "Alan Arnholt"
+date: '`r format(Sys.time(), "%B %d, %Y at %X")`'
+output: bookdown::html_document2
+---
+
+```{r, label = "SETUP", echo = FALSE, results= 'hide', message = FALSE, warning = FALSE}
+set.seed(143)
+library(knitr)
+knitr::opts_chunk$set(comment = NA,  fig.align = 'center', fig.height = 5, fig.width = 5, message = FALSE, warning = FALSE)
+# Parallel Processing
+library(doMC)
+registerDoMC(cores = 12)
+library(tidyverse)
+```
+
+# `Boston` data
+
+```{r}
+library(MASS)
+library(DT)
+Boston <- Boston %>% 
+  mutate(dis_rad = dis/rad)
+datatable(Boston, rownames = FALSE)
+```
+# Documentation for `caret`
+
+There is extensive documentation for the `caret` package at: https://topepo.github.io/caret/
+
+
+## Split into `train` and `test`
+
+```{r}
+set.seed(3416)
+library(caret)
+TRAIN <- createDataPartition(Boston$medv,
+                             p = 0.75,
+                             list = FALSE,
+                             times = 1)
+BostonTrain <- Boston[TRAIN, ]
+BostonTest <- Boston[-TRAIN, ]
+```
+
+## Pre-process the data
+
+```{r}
+pp_BostonTrain <- preProcess(BostonTrain[, -14],
+                           method = c("center", "scale", "BoxCox"))
+pp_BostonTrain
+BostonTrain_pp <- predict(pp_BostonTrain, newdata = BostonTrain)
+datatable(BostonTrain_pp, rownames = FALSE)
+#
+BostonTest_pp <- predict(pp_BostonTrain, newdata = BostonTest)
+datatable(BostonTest_pp, rownames = FALSE)
+```
+
+## Linear model
+
+```{r}
+set.seed(123)
+library(caret)
+myControl <- trainControl(method = "cv", number = 5)
+mod_lm <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "lm")
+mod_lm$results$RMSE  # Training RMSE
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_lm, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Linear model-Forward Selection
+
+```{r}
+set.seed(123)
+library(caret)
+myControl <- trainControl(method = "cv", number = 5)
+mod_fs <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "leapForward")
+mod_fs$results$RMSE  # Training RMSE
+mod_fs
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_fs, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Linear model-Backward Elimination
+
+```{r}
+set.seed(123)
+library(caret)
+myControl <- trainControl(method = "cv", number = 5)
+mod_be <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "leapBackward")
+mod_be$results$RMSE  # Training RMSE
+mod_be
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_be, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+## Elasticnet
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_glmnet <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "glmnet",
+                tuneLength = 12)
+mod_glmnet
+min(mod_glmnet$results$RMSE)  # Training RMSE
+plot(mod_glmnet)
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_glmnet, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+#### LASSO
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_lasso <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "glmnet",
+                tuneGrid = expand.grid(alpha = 1, lambda = seq(.01, 2, length = 10))
+)
+mod_lasso
+min(mod_lasso$results$RMSE)  # Training RMSE
+plot(mod_lasso)
+```
+
+#### Test RMSE
+
+```{r}
+p <- predict(mod_lasso, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+
+#### Ridge
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_ridge <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "glmnet",
+                tuneGrid = expand.grid(alpha = 0, lambda = seq(.01, 2, length = 10))
+)
+mod_ridge
+min(mod_ridge$results$RMSE)  # Training RMSE
+plot(mod_ridge)
+```
+
+#### Test RMSE
+
+```{r}
+p <- predict(mod_ridge, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Recursive Partitioning (Trees)
+
+```{r, fig.width = 12, fig.height = 10}
+library(rpart)
+mod_tree <- rpart(medv ~., data = BostonTrain_pp)
+mod_tree
+library(partykit)
+plot(as.party(mod_tree))
+```
+
+```{r}
+rpart.plot::rpart.plot(mod_tree)
+set.seed(123)
+mod_TR <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "rpart",
+                tuneLength = 10)
+mod_TR$bestTune
+mod_TR2 <- rpart(medv ~.,
+                 data = BostonTrain_pp,
+                 cp = mod_TR$bestTune)
+rpart.plot::rpart.plot(mod_TR2)
+mod_TR2
+```
+
+#### Test RMSE
+
+```{r}
+p <- predict(mod_TR2, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Bagging
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_tb <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "treebag"
+                )
+mod_tb
+min(mod_tb$results$RMSE)  # Training RMSE
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_tb, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Random Forest
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_rf <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "ranger",
+                tuneLength = 12)
+mod_rf
+min(mod_rf$results$RMSE)  # Training RMSE
+plot(mod_rf)
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_rf, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## Gradient Boosting
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_gbm <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "gbm",
+                tuneLength = 20)
+mod_gbm
+min(mod_gbm$results$RMSE)  # Training RMSE
+plot(mod_gbm)
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_gbm, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+
+
+## Support Vector Machines
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_svm <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "svmRadial",
+                tuneLength = 12)
+mod_svm
+min(mod_svm$results$RMSE)  # Training RMSE
+plot(mod_svm)
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_svm, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+## k-nearest neighbors
+
+```{r}
+set.seed(123)
+myControl <- trainControl(method = "cv", number = 5)
+mod_knn <- train(medv ~ ., 
+                data = BostonTrain_pp,
+                trControl = myControl,
+                method = "knn",
+                tuneLength = 12)
+mod_knn
+min(mod_knn$results$RMSE)  # Training RMSE
+plot(mod_knn)
+```
+
+### Test RMSE
+
+```{r}
+p <- predict(mod_knn, newdata = BostonTest_pp)
+RMSE(BostonTest_pp$medv, p) # Test RMSE
+```
+
+______________________
+______________________
+
+# Trees, Bootstrapped Aggregated Trees, and Random Forest
+
+**Tree-based** methods for regression and classification involve stratifying or segmenting the predictor space into a number of simple regions. In order to make a prediction for a given observation, we typically use the mean or the mode response value for the training observations in the region to which it belongs. Since the set of splitting rules used to segment the predictor space can be summarized in a tree, these types of approaches are known as decision tree methods. Tree-based methods are simple and useful for interpretation. However, they typically are not competitive with the best supervised learning approaches in terms of prediction accuracy. Hence we also introduce bagging, random forests, and boosting. Each of these approaches involves producing **multiple trees** which are then combined to yield a single consensus prediction. We will see that combining a large number of trees can often result in dramatic improvements in prediction accuracy, at the expense of some loss in interpretation.
+
+## Body Fat Data
+
+```{r}
+bfc <- read.csv("https://raw.githubusercontent.com/STAT-ATA-ASU/PredictiveModelBuilding/master/bodyfatClean.csv?token=AAO56AE3XCZANCK4V2FPH2LBTWG4I")
+head(bfc, n = 3)
+# Define an average person per the data
+avgperson <- data.frame(age = 45, weight_lbs = 180, height_in = 70, neck_cm = 38,
+                       chest_cm = 101, abdomen_cm = 93, hip_cm = 100, thigh_cm = 59, knee_cm = 39,
+                       ankle_cm = 23, biceps_cm = 32, forearm_cm = 29, wrist_cm = 18, bmi_C = 25,
+                       age_sq = 2175, abdomen_wrist = 74, am = 193)
+avgperson
+```
+
+## Regression Tree
+
+```{r, fig.width = 8, fig.height = 8, label = "tree", fig.cap = "Draw the regions for this tree in class"}
+library(rpart)
+tree <- rpart(brozek_C ~ weight_lbs + abdomen_cm, data = bfc)
+tree
+library(rattle)
+fancyRpartPlot(tree)
+predict(tree, newdata = avgperson)
+```
+
+
+### Prediction via Stratification of the Feature Space
+
+We now discuss the process of building a regression tree. Roughly speaking,
+there are two steps.
+
+1. We divide the predictor space — that is, the set of possible values
+for $X_1, X_2,\ldots, X_p$ — into $J$ distinct and non-overlapping regions,
+$R_1, R_2,\ldots,R_J$.
+
+2. For every observation that falls into the region $R_j$ , we make the same
+prediction, which is simply the mean of the response values for the
+training observations in $R_j$.
+
+For instance, suppose that in Step 1 we obtain two regions, $R_1$ and $R_2$, and that the response mean of the training observations in the first region is 10, while the response mean of the training observations in the second region is 20. Then for a given observation $X = x$, if $x \in R_1$ we will predict a value of 10, and if $x \in R_2$ we will predict a value of 20.
+
+We now elaborate on Step 1 above. How do we construct the regions $R_1,\ldots,R_J$? In theory, the regions could have any shape. However, we choose to divide the predictor space into high-dimensional rectangles, or boxes, for simplicity and for ease of interpretation of the resulting predictive model. The goal is to find boxes $R_1,\ldots,R_J$ that minimize the RSS,
+given by
+
+$$\sum_{j=1}^J\sum_{i\in R_j}(y_i - \hat{y}_{R_j})^2,$$
+where $\hat{y}_{R_j}$ is the mean response for the training observations within the $j^{\text{th}}$ box.  Unfortunately, is is not computationally feasible to consider every possible partition of the feature space into $J$ boxes.  For this reason, we take a _top-down_, _greed_ approach that is known as _recursive binary splitting_.  The approach is _top-down_ because it begins at the top to the tree (at which point all observations belong to a single region) and then successively splits the predictor space; each split is indicated via two new branches further down on the tree.  It is _greedy_ because at each step of the tree-building process, the _best_ split is made at that particular step, rather than looking ahead and picking a split that will lead to a better tree in some future step.
+
+In order to perform recursive binary splitting, we first select the predictor $X_j$ and the cutpoint $s$ such that splitting the predictor space into the regions ${X|X_j < s}$ and ${X|X_j \geq s}$ leads to the greatest possible reduction in RSS.
+
+In order to perform recursive binary splitting, we first select the predictor $X_j$ and the cutpoint $s$ such that splitting the predictor space into the regions ${X|X_j < s}$ and ${X|X_j \geq s}$ leads to the greatest possible reduction in RSS.  That is, we consider all predictors $X_1, \ldots, X_p$, and all possible values of the cutpoint $s$ for each of the predictors, and then choose the predictor and cutpoint such that the resulting tree has the lowest RSS.  In greater detail, for any $j$ and $s$, we define the pair of half-planes
+
+$$R_1(j,s)={X|X_j < s} \quad{\text{and }} R_2(j,s) = {X|X_j \geq s},$$
+and we seek the value of $j$ and $s$ that minimize the equation
+
+$$\sum_{i:x_i\in R_1(j,s)}(y_i - \hat{y}_{R_1})^2 + \sum_{i:x_i\in R_2(j,s)}(y_i - \hat{y}_{R_2})^2,$$
+where $\hat{y}_{R_1}$ is the mean response for the training observations in $R_1(j,s)$, and $\hat{y}_{R_2}$ is the mean response for the training observations in $R_2(j,s)$.
+
+Once the regions $R_1, \ldots, R_J$ have been created, we predict the response for a given test observation using the mean of the training observations in the region to which that test observation belongs.
+
+### Your Turn
+
+Draw the regions for the tree shown in Figure \@ref(fig:ptree).
+
+```{r, fig.width = 10, fig.height = 10, label = "ptree", fig.cap = "Use this tree representation to draw the Regions on paper"}
+ptree <- rpart(brozek_C ~ weight_lbs + height_in, data = bfc)
+fancyRpartPlot(ptree)
+```
+
+## Bagging 
+
+The decision trees discussed in the previous section suffer from _high variance_.  This means that if we split the training data into two parts at random, and fit a decision tree to both halves, the results that we get could be quite different.  In contrast, a procedure with _low variance_ will yield similar results if applied repeatedly to distinct data sets; linear regression tends to have low variance, if the ration of $n$ to $p$ is moderately large.  **Bootstrap aggregation**, or **bagging**, is a general-purpose procedure for reducing the variance of a statistical learning method.
+
+Recall that a given a set of $n$ independent observations $Z_1, Z_2, \ldots, Z_n$, each with variance $\sigma^2$, the variance of the mean $\bar{Z}$ of the observations is given by $\sigma^2/n$.  In other words, _averaging a set of observations reduces variance_.  Hence a natural way to reduce the variance and increase the test set accuracy of a statistical learning method is to take many training sets from the population,, build a separate prediction model using each training set, and average the resulting predictions.  In other words, we could calculate $\hat{f}^1(x), \hat{f}^2(x),\ldots,\hat{f}^B(x)$ using $B$ separate training sets, and average then in order to obtain a single low-variance statistical learning model, given by
+
+$$\hat{f}_{\text{avg}}(x) = \frac{1}{B}\sum_{b=1}^B\hat{f}^b(x).$$
+Of course, this is not practical because we generally do not have access to multiple training sets.  Instead, we can bootstrap. by taking repeated samples for the (single) training data set.  In this approach we generate $B$ different bootstrapped training data sets.  We then train our method on the $b^{\text{th}}$ bootstrapped training set in order to get $\hat{f}^{*b}(x)$, and finally average all the predictions, to obtain
+
+$$\hat{f}_{\text{bag}}(x) = \frac{1}{B}\sum_{b=1}^B\hat{f}^{*b}(x).$$
+When **bagging** trees are grown deep, and are not pruned.  Hence each individual tree has high variance, but low bias.  Averaging these $B$ trees reduces the variance!
+
+## Creating Bootstrapped Data Sets (9)
+
+```{r}
+set.seed(34)
+bs1 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs2 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs3 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs4 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs5 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs6 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs7 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs8 <- bfc[sample(1:251, 251, replace = TRUE), ]
+bs9 <- bfc[sample(1:251, 251, replace = TRUE), ]
+library(rpart)
+library(rattle)  # students will have to install rattle
+```
+
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+# Create a tree to predict brozek_C
+tree1 <- rpart(brozek_C ~.,
+               data = bs1)
+rpart.plot::rpart.plot(tree1)
+fancyRpartPlot(tree1)
+#
+(predict(tree1, newdata = avgperson) -> pt1)
+# 20.4733
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree2 <- rpart(brozek_C ~.,
+                 data = bs2)
+rpart.plot::rpart.plot(tree2)
+fancyRpartPlot(tree2)
+#
+(predict(tree2, newdata = avgperson) -> pt2)
+# 24.19846
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree3 <- rpart(brozek_C ~.,
+                 data = bs3)
+rpart.plot::rpart.plot(tree3)
+fancyRpartPlot(tree3)
+#
+(predict(tree3, newdata = avgperson) -> pt3)
+# 19.9902
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree4 <- rpart(brozek_C ~.,
+                 data = bs4)
+rpart.plot::rpart.plot(tree4)
+fancyRpartPlot(tree4)
+#
+(predict(tree4, newdata = avgperson) -> pt4)
+# 20.71739
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree5 <- rpart(brozek_C ~.,
+                 data = bs5)
+rpart.plot::rpart.plot(tree5)
+fancyRpartPlot(tree5)
+#
+(predict(tree5, newdata = avgperson) -> pt5)
+# 22.10137
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree6 <- rpart(brozek_C ~.,
+                 data = bs6)
+rpart.plot::rpart.plot(tree6)
+fancyRpartPlot(tree6)
+#
+(predict(tree6, newdata = avgperson) -> pt6)
+# 20.296
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree7 <- rpart(brozek_C ~.,
+                 data = bs7)
+rpart.plot::rpart.plot(tree7)
+fancyRpartPlot(tree7)
+#
+(predict(tree7, newdata = avgperson) -> pt7)
+# 19.73148
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree8 <- rpart(brozek_C ~.,
+                 data = bs8)
+rpart.plot::rpart.plot(tree8)
+fancyRpartPlot(tree8)
+#
+(predict(tree8, newdata = avgperson) -> pt8)
+# 23.21591
+```
+
+```{r, fig.width = 8, fig.height = 8}
+avgperson
+tree9 <- rpart(brozek_C ~.,
+                 data = bs9)
+rpart.plot::rpart.plot(tree9)
+fancyRpartPlot(tree9)
+#
+(predict(tree9, newdata = avgperson) -> pt9)
+# 23.16
+```
+
+```{r}
+mean(c(pt1, pt2, pt3, pt4, pt5, pt6, pt7, pt8, pt9))
+```
+
+## Random Forests
+
+**Random Forests** provide an improvement over bagged trees by way of a small tweak the _decorrelates_ the trees.  As in bagging, we build a number of decision trees on bootstrapped training samples.  But when building these decision trees, each time a split in a tree is considered, a **random sample of _m_ predictors** is chosen as split candidates from the full set of $p$ predictors.  The split is allowed to use only one of those $m$ predictors.  A fresh sample of $m$ predictors is taken at each split, and typical we choose $m \approx \sqrt{p}$---that is, the number of predictors considered at each split is approximately equal to the square root of the total number of predictors.  
+
+In other words , in building a random forest, at each split in the tree, the algorithm is **not even allowed to consider** a majority of the available predictors.  This may sound crazy, but it has a clever rationale.  Suppose that there is one very strong predictor in the data set, along with a number of other moderately strong predictors.  Then in the collection of bagged trees, most or all of the trees will use this strong predictor in the top split.  Consequently, all of the bagged trees will be highly correlated.  Unfortunately, averaging many highly correlated quantities does not lead to as large a reduction as averaging many uncorrelated quantities.In particular, this means that bagging will not lead to a substantial reduction in variance over a single tree in this setting.
+
+Random forest overcome this problem by forcing each split to consider only a subset of the predictors.  Therefore, on average $(p-m)/p$ of the splits will not even consider the strong predictor, and so other predictors will have more of a chance.  We can think of this process as **decorrelating** the trees, thereby making the average of the resulting trees less variable and hence more reliable.
