@@ -1,5 +1,5 @@
 ---
-title: "Class Example Using `Boston`"
+title: "Class Example Using `Boston` and More"
 author: "Descriptions from ISLR"
 date: '`r format(Sys.time(), "%B %d, %Y at %X")`'
 output: bookdown::html_document2
